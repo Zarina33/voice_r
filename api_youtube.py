@@ -10,7 +10,8 @@ from vocal_remover.lib import dataset
 from vocal_remover.lib import nets
 from vocal_remover.lib import spec_utils
 from vocal_remover.lib import utils
-
+import subprocess
+from moviepy.editor import *
 app = Flask(__name__)
 
 class Separator(object):
@@ -111,14 +112,54 @@ def separate_audio():
         print(f"Downloading audio from video link: {video_link}")
 
         # Download audio from YouTube link using pytube
-        try:
-            yt = YouTube(video_link)
-            audio_stream = yt.streams.filter(only_audio=True).first()
-            audio_stream.download(filename='downloaded_audio')
-            print("Audio downloaded successfully.")
-        except Exception as e:
-            print(f"Error downloading video: {str(e)}")
-            return jsonify({'error': f'Failed to download video: {str(e)}'}), 500
+        def download_youtube_audio(video_url, cookies_path, output_path):
+            try:
+        # Check if output directory exists, create if not
+                if not os.path.exists(output_path):
+                    os.makedirs(output_path)
+
+        # Download video using yt-dlp
+                command = [
+                    "yt-dlp",
+                    "--cookies", cookies_path,
+                    "--output", os.path.join(output_path, "temp_video.webm"),
+                    video_url
+                ]
+                subprocess.run(command)
+
+        # Convert video to audio
+                # Convert video to audio
+                video_clip = AudioFileClip(os.path.join(output_path, "temp_video.webm"))
+                audio_file_path = os.path.join(output_path, "downloaded_audio.mp3")  # Change file extension to .mp3
+                video_clip.write_audiofile(audio_file_path, codec='libmp3lame')  # Specify audio codec
+
+
+        # Remove temporary video file
+                os.remove(os.path.join(output_path, "temp_video.webm"))
+
+                return audio_file_path
+
+            except Exception as e:
+               print("Error during download and conversion:", str(e))
+            return None
+
+# Example usage
+
+        output_path = r"/Users/zarinamacbook/Desktop/vocal-remover/results"  # Path to save audio file
+        cookies_path = r'/Users/zarinamacbook/Downloads/www.youtube.com_cookies.txt'  # Path to cookies file
+        audio_file_path = download_youtube_audio(video_link, cookies_path, output_path)
+        if audio_file_path:
+                print("Audio file successfully created:", audio_file_path)
+        else:
+                print("Failed to create audio file.")
+        # try:
+        #     yt = YouTube(video_link)
+        #     audio_stream = yt.streams.filter(only_audio=True).first()
+        #     audio_stream.download(filename='downloaded_audio')
+        #     print("Audio downloaded successfully.")
+        # except Exception as e:
+        #     print(f"Error downloading video: {str(e)}")
+        #     return jsonify({'error': f'Failed to download video: {str(e)}'}), 500
 
         # Load model
         model_path = 'vocal_remover/models/baseline.pth'
@@ -131,11 +172,12 @@ def separate_audio():
         model.to(device)
 
         # Load audio file
-        audio_filename = 'downloaded_audio.mp4'
+        audio_filename = audio_file_path
         if not os.path.exists(audio_filename):
             return jsonify({'error': 'Audio file does not exist.'}), 400
 
         X, sr = librosa.load(audio_filename, sr=22050, mono=False, dtype=np.float32, res_type='kaiser_fast')
+        
         if X.ndim == 1:
             X = np.asarray([X, X])
 
@@ -149,7 +191,7 @@ def separate_audio():
         )
 
         y_spec, v_spec = sp.separate(X_spec)
-
+        
         # Convert spectrograms to waveforms
         instruments_wave = spec_utils.spectrogram_to_wave(y_spec, hop_length=512)
         vocals_wave = spec_utils.spectrogram_to_wave(v_spec, hop_length=512)
@@ -164,9 +206,9 @@ def separate_audio():
             'instruments_file': instruments_filename,
             'vocals_file': vocals_filename
         })
-
+    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8010, debug=True)
+    app.run(host="0.0.0.0", port=8020, debug=True)

@@ -173,4 +173,4 @@ def separate_audio():
         logging.error(f'Error occurred: {str(e)}')
         return jsonify({'error': str(e)}), 500
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8589, debug=True)
+    app.run(host="0.0.0.0", port=858, debug=True)

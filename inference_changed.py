@@ -14,7 +14,7 @@ from vocal_remover.lib import utils
 
 class Separator(object):
 
-    def _init_(self, model, device=None, batchsize=1, cropsize=256, postprocess=False):
+    def __init__(self, model, device=None, batchsize=1, cropsize=256, postprocess=False):
         self.model = model
         self.offset = model.offset
         self.device = device
@@ -98,7 +98,7 @@ class Separator(object):
 
 class MainProcessor:
     @staticmethod
-    def mainu(audio_file_path, model_path='vocal_remover/models/baseline.pth', args=None):
+    def mainu(audio_file_path, model_path='/Users/zarinamacbook/Desktop/vocal-remover/vocal_remover/models/baseline.pth', args=None):
         if args is None:
             args = argparse.Namespace()
             args.gpu = -1
@@ -161,12 +161,12 @@ class MainProcessor:
         print('inverse stft of instruments...', end=' ')
         wave = spec_utils.spectrogram_to_wave(y_spec, hop_length=args.hop_length)
         print('done')
-        sf.write('{}{}_Instruments.wav'.format(output_dir, basename), wave.T, sr)
+        sf.write('/Users/zarinamacbook/Desktop/vocal-remover/results/{}{}_Instruments.wav'.format(output_dir, basename), wave.T, sr)
 
         print('inverse stft of vocals...', end=' ')
         wave = spec_utils.spectrogram_to_wave(v_spec, hop_length=args.hop_length)
         print('done')
-        sf.write('{}{}_Vocals.wav'.format(output_dir, basename), wave.T, sr)
+        sf.write('/Users/zarinamacbook/Desktop/vocal-remover/results/{}{}_Vocals.wav'.format(output_dir, basename), wave.T, sr)
 
-if _name_ == '_main_':
-    MainProcessor.mainu('/Users/aidaizhusup/Downloads/n1.mp3')
+if __name__ == '__main__':
+    MainProcessor.mainu('/Users/zarinamacbook/Downloads/nurmat-sadyrov-torgoyum-zhany-klip-muzkg.mp3')
