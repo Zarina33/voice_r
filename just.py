@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response, send_file
 import argparse
 import os
 import librosa
@@ -10,10 +10,23 @@ from vocal_remover.lib import dataset
 from vocal_remover.lib import nets
 from vocal_remover.lib import spec_utils
 from vocal_remover.lib import utils
-from pydub import AudioSegment
 import io
-
+import zipfile
+import torch.cuda
 app = Flask(__name__)
+
+
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
+    print("CUDA is not available. Falling back to CPU...")
+
+# Load model and move it to GPU
+model_path = 'vocal_remover/models/baseline.pth'
+model = nets.CascadedNet(2048, 1024, 32, 128, True).to(device)
+model.load_state_dict(torch.load(model_path, map_location=device))
+model.eval()
 
 class Separator(object):
     def __init__(self, model, device=None, batchsize=1, cropsize=256, postprocess=False):
@@ -44,8 +57,6 @@ class Separator(object):
             X_dataset.append(X_spec_crop)
 
         X_dataset = np.asarray(X_dataset)
-
-        self.model.eval()
         with torch.no_grad():
             mask_list = []
            
@@ -104,32 +115,15 @@ logging.basicConfig(level=logging.DEBUG)
 @app.route('/separate', methods=['POST'])
 def separate_audio():
     try:
-        logging.debug('Received separate_audio request.')
-
-        # Check if audio file is in form data
+    
         if 'audio_file' not in request.files:
             logging.error('No audio file provided.')
             return jsonify({'error': 'No audio file provided.'}), 400
 
         audio_file = request.files['audio_file']
 
-        # Save the uploaded file
         audio_filename = 'uploaded_audio.wav'
         audio_file.save(audio_filename)
-
-        logging.debug(f'Received audio_file: {audio_filename}')
-
-        # Load model
-        model_path = 'vocal_remover/models/baseline.pth'
-        if not os.path.exists(model_path):
-            logging.error('Model file does not exist.')
-            return jsonify({'error': 'Model file does not exist.'}), 400
-
-        device = torch.device('cpu')
-        model = nets.CascadedNet(2048, 1024, 32, 128, True)
-        model.load_state_dict(torch.load(model_path, map_location='cpu'))
-        model.to(device)
-
         # Load audio file
         if not os.path.exists(audio_filename):
             logging.error('Audio file does not exist.')
@@ -151,43 +145,32 @@ def separate_audio():
         )
 
         y_spec, v_spec = sp.separate(X_spec)
+        X_spec = torch.from_numpy(X_spec).to(device)
 
-        # Convert spectrograms to waveforms
+
         instruments_wave = spec_utils.spectrogram_to_wave(y_spec, hop_length=512)
         vocals_wave = spec_utils.spectrogram_to_wave(v_spec, hop_length=512)
 
-        # Save waveforms to MP3 files
-        instruments_audio = AudioSegment(
-            io.BytesIO(instruments_wave.tobytes()),
-            frame_rate=sr,
-            sample_width=instruments_wave.dtype.itemsize,
-            channels=2
-        )
-        vocals_audio = AudioSegment(
-            io.BytesIO(vocals_wave.tobytes()),
-            frame_rate=sr,
-            sample_width=vocals_wave.dtype.itemsize,
-            channels=2
-        )
+        instruments_file = io.BytesIO()
+        vocals_file = io.BytesIO()
+        
+        sf.write(instruments_file, instruments_wave.T, sr, format='wav')
+        sf.write(vocals_file, vocals_wave.T, sr, format='wav')
+        response = make_response()
+        response.headers["Content-Disposition"] = "attachment; filename=separated_files.zip"
+        response.headers["Content-type"] = "application/zip"
 
-        instruments_filename = 'instruments.mp3'
-        vocals_filename = 'vocals.mp3'
+        with io.BytesIO() as zip_buffer:
+            with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
+                zip_file.writestr('/Users/zarinamacbook/Desktop/vocal-remover/resultsinstruments.wav', instruments_file.getvalue())
+                zip_file.writestr('/Users/zarinamacbook/Desktop/vocal-remover/resultsvocals.wav', vocals_file.getvalue())
+            
+            response.data = zip_buffer.getvalue()
 
-        # Export to MP3
-        instruments_audio.export(instruments_filename, format="mp3")
-        vocals_audio.export(vocals_filename, format="mp3")
-
-        logging.debug('Processed and saved files.')
-
-        return jsonify({
-            'instruments_file': instruments_filename,
-            'vocals_file': vocals_filename
-        })
+        return response
 
     except Exception as e:
         logging.error(f'Error occurred: {str(e)}')
         return jsonify({'error': str(e)}), 500
-
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=6100, debug=True)
-
+    app.run(host="0.0.0.0", port=8589, debug=True)

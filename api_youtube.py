@@ -6,7 +6,6 @@ import soundfile as sf
 import torch
 from tqdm import tqdm
 from pytube import YouTube
-import youtube_dl  
 from vocal_remover.lib import dataset
 from vocal_remover.lib import nets
 from vocal_remover.lib import spec_utils
@@ -105,28 +104,21 @@ def separate_audio():
     try:
         # Check if video_link is provided
         if 'video_link' not in request.form:
+            print("No video link provided in the request.")
             return jsonify({'error': 'No video link provided.'}), 400
 
-        video_link = request.form['video_link']
+        video_link = request.form['video_link'].split('?')[0]  # Remove additional parameters
+        print(f"Downloading audio from video link: {video_link}")
 
-        # Download audio from YouTube link
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'wav',
-                'preferredquality': '192',
-            }],
-            'outtmpl': 'downloaded_audio.wav',
-            'default_search': 'ytsearch',  # Add this line
-            'verbose': True
-        }
-        
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            try:
-                ydl.download([video_link])
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
+        # Download audio from YouTube link using pytube
+        try:
+            yt = YouTube(video_link)
+            audio_stream = yt.streams.filter(only_audio=True).first()
+            audio_stream.download(filename='downloaded_audio')
+            print("Audio downloaded successfully.")
+        except Exception as e:
+            print(f"Error downloading video: {str(e)}")
+            return jsonify({'error': f'Failed to download video: {str(e)}'}), 500
 
         # Load model
         model_path = 'vocal_remover/models/baseline.pth'
@@ -139,7 +131,7 @@ def separate_audio():
         model.to(device)
 
         # Load audio file
-        audio_filename = 'downloaded_audio.wav'
+        audio_filename = 'downloaded_audio.mp4'
         if not os.path.exists(audio_filename):
             return jsonify({'error': 'Audio file does not exist.'}), 400
 
@@ -177,4 +169,4 @@ def separate_audio():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8010, debug=True)
